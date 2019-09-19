@@ -1,0 +1,328 @@
+library(tidyverse)
+library(mfGARCH)
+library(tidyquant)
+library(forecast)
+library(rugarch)
+library(keras)
+library(rsample)
+library(quantmod)
+library(robustHD)
+library(neuralnet)
+library(RSNNS)
+library(fGarch)
+library(Metrics)
+library(tseries)
+set.seed(10000000)
+####################
+
+#cran <- getOption("repos")
+#cran["dmlc"] <- "https://apache-mxnet.s3-accelerate.dualstack.amazonaws.com/R/CRAN/"
+#options(repos = cran)
+#install.packages("mxnet")
+
+#library(devtools)
+#install_version("DiagrammeR", version = "0.9.2", repos = "http://cran.us.r-project.org")
+#library(DiagrammeR)
+#library(mxnet)
+
+####################
+
+
+
+
+#### Setup Daily vol
+setwd("C:/Users/Teji/Google Drive/Masterthesis/Data")
+data<-read.csv("OxfordManRealizedVolatilityIndices.csv")
+
+options(digits=22)
+data2<-data
+
+#######################################
+##### Reswitching ######
+#data<-data2
+
+################################################ Transformation ############################################### 
+
+rvol<-as.numeric(as.character(as.character(data$rv5[data$Symbol==".SPX"])))
+date<-as.Date(substr(as.character(data$X[data$Symbol==".SPX"]),1,10),format="%Y-%m-%d")
+data<-data.frame(rvol,date)
+data<-data[!is.na(data$rvol)==T,]
+data<-data[lubridate::year(date)<=2017,]
+Sys.Date()
+
+stock<-getSymbols("^GSPC",auto.assign = FALSE, from =min("2018-01-01"),to=Sys.Date())
+daily_return<-Return.calculate(stock$GSPC.Close,method=c("log"))
+stock<-data.frame(index(stock),daily_return)
+colnames(stock)<-c("date","daily_return")
+stock<-merge(data,stock)
+stock<-stock%>%
+  mutate(
+    month_year=paste0(month(stock$date),year(stock$date)))
+#### Unemployment Rate
+uep<-read.csv("UNRATE.csv")
+uep$DATE<-as.Date(uep$DATE,format="%Y-%m-%d")
+uep$UNRATE<-as.numeric(as.character(uep$UNRATE))
+uep<-uep[lubridate::year(uep$DATE)<=2017,]
+colnames(uep)<-tolower(colnames(uep))
+uep<-uep%>%
+  mutate(
+    month_year=paste0(month(uep$date),year(uep$date)))
+#### GNP
+gnp<-read.csv("GNP.csv")
+gnp$DATE<-as.Date(gnp$DATE,format="%Y-%m-%d")
+gnp$GNP<-as.numeric(as.character(gnp$GNP))
+gnp<-gnp[lubridate::year(gnp$DATE)<=2017,]
+colnames(gnp)<-tolower(colnames(gnp))
+gnp<-data.frame(gnp,month_year=paste0(month(gnp$date),year(gnp$date)))
+## Weekly RV
+ 
+rt_w<-rep(colMeans(matrix(stock$daily_return,5)),each=5)
+
+rt_m<-stock %>%
+  group_by(month_year) %>%
+  summarise(mean = mean(daily_return))
+
+
+
+
+#### merging
+stock<-stock%>%
+  left_join(uep,by="month_year")%>%
+  left_join(gnp,by="month_year")%>%
+  left_join(rt_m,by="month_year")%>%
+  fill(gnp)%>%
+  fill(date)%>%
+  cbind(rt_w[1:nrow(stock)])
+
+
+colnames(stock)<-c("date","rvol","daily_returns","month_year_paste","date_month","uemp","date_quarter","gnp","rt_m","rt_w")
+stock<-stock[2:nrow(stock),]#remove na from daily returns
+
+egarch_fc<-read.csv("egarch_window_fc_complete.csv")
+garch_fc<-read.csv("garch_window_fc_complete.csv")
+egarch_fc<-egarch_fc$x**2
+garch_fc<-garch_fc$x**2
+gmidas_fc<-read.csv("gmidas.csv")[1:(nrow(stock)-254),]
+gmidas_xfc<-read.csv("gmidasX.csv")[1:(nrow(stock)-254),]
+
+stock<-cbind(stock[255:nrow(stock),],garch_fc,egarch_fc,gmidas_fc,gmidas_xfc)
+
+data_range<-function(x) {(x-min(x))/(max(x)-min(x))}
+
+stock$rt_w[is.na(stock$rt_w)==T]<-0
+
+###################################################################################################################################################################
+
+xt7<-stock$daily_returns[1:(length(stock$daily_returns)-7)]**2
+xt6<-stock$daily_returns[2:(length(stock$daily_returns)-6)]**2
+xt5<-stock$daily_returns[3:(length(stock$daily_returns)-5)]**2
+xt4<-stock$daily_returns[4:(length(stock$daily_returns)-4)]**2
+xt3<-stock$daily_returns[5:(length(stock$daily_returns)-3)]**2
+xt2<-stock$daily_returns[6:(length(stock$daily_returns)-2)]**2
+xt1<-stock$daily_returns[7:(length(stock$daily_returns)-1)]**2
+stock<-cbind(stock[8:nrow(stock),],x=stock$rvol[8:nrow(stock)],xt1,xt2,xt3,xt4,xt5,xt6,xt7)
+
+# resid uncond mean
+#xt7<-(mean(stock$daily_returns)-stock$daily_returns[1:(length(stock$daily_returns)-7)])**2
+#xt6<-(mean(stock$daily_returns)-stock$daily_returns[2:(length(stock$daily_returns)-6)])**2
+#xt5<-(mean(stock$daily_returns)-stock$daily_returns[3:(length(stock$daily_returns)-5)])**2
+#xt4<-(mean(stock$daily_returns)-stock$daily_returns[4:(length(stock$daily_returns)-4)])**2
+#xt3<-(mean(stock$daily_returns)-stock$daily_returns[5:(length(stock$daily_returns)-3)])**2
+#xt2<-(mean(stock$daily_returns)-stock$daily_returns[6:(length(stock$daily_returns)-2)])**2
+#xt1<-(mean(stock$daily_returns)-stock$daily_returns[7:(length(stock$daily_returns)-1)])**2
+#stock<-cbind(stock[8:nrow(stock),],x=stock$rvol[8:nrow(stock)],xt1,xt2,xt3,xt4,xt5,xt6,xt7)
+
+# resid arma
+arimaresid<-auto.arima(stock$daily_returns)
+arimaresid<-arimaresid$residuals
+xt7<-arimaresid[1:(length(stock$daily_returns)-7)]**2
+xt6<-arimaresid[2:(length(stock$daily_returns)-6)]**2
+xt5<-arimaresid[3:(length(stock$daily_returns)-5)]**2
+xt4<-arimaresid[4:(length(stock$daily_returns)-4)]**2
+xt3<-arimaresid[5:(length(stock$daily_returns)-3)]**2
+xt2<-arimaresid[6:(length(stock$daily_returns)-2)]**2
+xt1<-arimaresid[7:(length(stock$daily_returns)-1)]**2
+stock<-cbind(stock[8:nrow(stock),],x=stock$rvol[8:nrow(stock)],xt1,xt2,xt3,xt4,xt5,xt6,xt7)
+
+
+###################################################################################################################################################################
+
+################################################  Garch Model inclusion ############################################### 
+
+###############################################  Delay Grouping  ############################################### 
+#xt5<-stock$rvol[1:(length(stock$rvol)-5)]
+#xt4<-stock$rvol[2:(length(stock$rvol)-4)]
+#xt3<-stock$rvol[3:(length(stock$rvol)-3)]
+#xt2<-stock$rvol[4:(length(stock$rvol)-2)]
+#xt1<-stock$rvol[5:(length(stock$rvol)-1)]
+#x<-stock$rvol[6:length(stock$rvol)]
+#lag_rvol_df<-data.frame(xt1,xt2,xt3,xt4,xt5,x)
+#lag_rvol<-standardize(lag_rvol_df)
+
+#lag_rvol_range<-data_range(as.matrix(lag_rvol_df))
+#pacf(stock$daily_returns**2)
+
+#lag_dr_range<-standardize(lag_dr_df)
+
+###################################################################### standard
+
+#####################################################################
+
+##write.csv(result_2_hidden,"result_2_hidden_softplus.csv",row.names = F)
+#result_2_hidden_sigmoid%>%
+#  lapply(FUN = as.numeric)%>%
+#  as.tibble()%>%
+#  summarise_each(funs(min(.,na.rm = TRUE)))
+
+#result_2_hidden%>%
+#  lapply(FUN = as.numeric)%>%
+#  as.tibble()%>%
+#  summarise_each(funs(min(.,na.rm = TRUE)))
+###########################################
+
+
+#########################################
+lag_dr_df<-stock%>%
+  select(-"date",-"month_year_paste",-"date_month",-"date_quarter")
+
+lag_dr_range<-as.matrix(sapply(lag_dr_df,data_range))
+
+
+
+unscale_data<-function(x,max_x,min_x){x*(max_x-min_x)+min_x}
+softplus <- function(x) log(1+exp(x))
+sigmoid = function(x) {1 / (1 + exp(-x))}
+#https://stackoverflow.com/questions/34532878/package-neuralnet-in-r-rectified-linear-unit-relu-activation-function
+###################################################################### standard
+#####################################################################
+#####################################################################
+split<-initial_time_split(lag_dr_range,prop=0.9)
+nn_train<-training(split)
+nn_test<-testing(split)
+
+data_input_1<-c("xt1","xt2","xt3")
+data_input_2<-c("xt1","xt2","xt3","uemp")
+data_input_3<-c("xt1","rt_m","rt_w")
+data_input_4<-c("xt1","xt2","xt3","garch_fc")
+data_input_5<-c("xt1","xt2","xt3","egarch_fc")
+data_input_6<-c("xt1","xt2","xt3","garch_fc","uemp")
+data_input_7<-c("xt1","xt2","xt3","egarch_fc","uemp")
+data_input_8<-c("xt1","xt2","xt3","egarch_fc","garch_fc")
+data_input_9<-c("xt1","xt2","xt3","egarch_fc","garch_fc","uemp")
+data_input_10<-c("xt1","xt2","xt3","gmidas_xfc")
+data_input_11<-c("xt1","xt2","xt3","gmidas_xfc","garch_fc")
+data_input_12<-c("xt1","xt2","xt3","gmidas_xfc","egarch_fc")
+data_input_13<-c("xt1","xt2","xt3","gmidas_xfc","egarch_fc","garch_fc")
+data_input_14<-c("garch_fc")
+data_input_15<-c("egarch_fc")
+data_input_16<-c("gmidas_xfc")
+listfc<-list(data_input_1,data_input_2,data_input_3,data_input_4,
+             data_input_5,data_input_6,data_input_7,data_input_8,
+             data_input_9,data_input_10,data_input_11,data_input_12
+             ,data_input_13,data_input_14,data_input_15,data_input_16)  
+
+result_mlp<-c()
+errors_mlp<-list()
+ptm <- proc.time()
+for(i in 1:16){
+  set.seed(8)
+  modelmlp<-neuralnet(as.formula(paste("x",paste(listfc[[i]], collapse="+"),sep=" ~ ")),data=nn_train, hidden = c(5),act.fct =softplus,learningrate=0.1,
+                        err.fct = "sse", linear.output=TRUE,threshold = 0.01,stepmax = 1e+07,rep=1)
+  pred<-compute(modelmlp, nn_test)
+  spl<-compute(modelmlp, nn_train)
+  
+  mlp_actual<-unscale_data(pred$net.result,max(stock[,c("xt1")]),min(stock[,c("xt1")]))
+  result_mlp[i]<-format(rmse(mlp_actual,stock[(nrow(stock)-nrow(nn_test)+1):nrow(stock),c("rvol")]),scientific = FALSE)
+  errors_mlp[[i]]<-stock[(nrow(stock)-nrow(nn_test)+1):nrow(stock),c("rvol")]-mlp_actual
+  }
+proc.time() - ptm
+
+write.csv(result_mlp,"result_mlp_cm.csv",row.names = F)
+write.csv(errors_mlp,"errors_mlp_cm.csv",row.names = F)
+#10687.2
+###################################################################################################################################################################
+
+result_elman<-c()
+errors_elman<-list()
+ptm <- proc.time()
+for(i in 1:16){
+set.seed(8)
+modelelman<-elman(nn_train[,listfc[[i]]],nn_train[,c("x")],size=c(5),learnFuncParams=c(0.1),maxit=1000,
+                   inputsTest = nn_test[,listfc[[i]]], updateFunc = "JE_Order",learnFunc = "JE_Rprop",
+                   targetsTest = nn_test[,c("x")])
+
+
+elman_actual<-unscale_data(modelelman$fittedTestValues,max(stock[,c("xt1")]),min(stock[,c("xt1")]))
+result_elman[i]<-format(rmse(elman_actual,stock[(nrow(stock)-nrow(nn_test)+1):nrow(stock),c("rvol")]),scientific = FALSE)
+errors_elman[[i]]<-stock[(nrow(stock)-nrow(nn_test)+1):nrow(stock),c("rvol")]-elman_actual
+}
+proc.time() - ptm
+
+
+result_jordan<-c()
+errors_jordan<-list()
+ptm <- proc.time()
+for(i in 1:16){
+  set.seed(8)
+  modelelman<-jordan(nn_train[,listfc[[i]]],nn_train[,c("x")],size=c(5),learnFuncParams=c(0.1),maxit=1000,
+                    inputsTest = nn_test[,listfc[[i]]], updateFunc = "JE_Order",learnFunc = "JE_Rprop",
+                    targetsTest = nn_test[,c("x")])
+  
+  
+  jordan_actual<-unscale_data(modelelman$fittedTestValues,max(stock[,c("xt1")]),min(stock[,c("xt1")]))
+  result_jordan[i]<-format(rmse(jordan_actual,stock[(nrow(stock)-nrow(nn_test)+1):nrow(stock),c("rvol")]),scientific = FALSE)
+  errors_jordan[[i]]<-stock[(nrow(stock)-nrow(nn_test)+1):nrow(stock),c("rvol")]-jordan_actual
+  }
+proc.time() - ptm
+
+
+write.csv(result_elman,"result_elman_um.csv",row.names = F)
+write.csv(result_jordan,"result_jordan_um.csv",row.names = F)
+write.csv(errors_elman,"errors_elman_um.csv",row.names = F)
+write.csv(errors_jordan,"errors_jordan_um.csv",row.names = F)
+
+############################################################### Plotting ############################################### 
+################
+
+use_session_with_seed(8)
+errors_lstm<-list()
+result_lstm<-c()
+db_lstm<-c()
+ptm <- proc.time()
+for (i in 1:16){
+xkeras_train<-nn_train[,listfc[[i]]]
+ykeras_train<-nn_train[,c("x")]
+
+xkeras_test<-nn_test[,listfc[[i]]]
+ykeras_test<-nn_test[,c("x")]
+
+time=ifelse(is.null(nrow(xkeras_train))==T,length(xkeras_train),nrow(xkeras_train))
+timey=ifelse(is.null(nrow(xkeras_test))==T,length(xkeras_test),nrow(xkeras_test))
+dim(xkeras_train)<-c(time,ifelse(is.null(ncol(xkeras_train))==T,1,ncol(xkeras_train)),1)
+dim(xkeras_test)<-c(timey,ifelse(is.null(ncol(xkeras_test))==T,1,ncol(xkeras_train)),1)
+model<-keras_model_sequential()
+model%>%
+  layer_lstm(5,input_shape = c(ncol(xkeras_train),1),activation="relu")%>%
+   #layer_dense(units=25,activation="relu")%>%
+   #layer_dense(units=5)%>%
+  layer_dense(units=1,activation="linear")
+ 
+model%>%compile(
+   loss="mae",
+   optimizer="RMSprop",
+   metrics=c("mae") 
+)
+
+model%>%fit(xkeras_train,ykeras_train,epochs=50,batch_size=256,shuffle=F)
+  
+#model%>%evaluate(xkeras_train,ykeras_train,verbose=0)
+#model%>%evaluate(xkeras_test,ykeras_test,verbose=0)
+y_pred=model%>%predict(xkeras_test)
+lstm_actual<-unscale_data(y_pred,max(stock[,c("xt1")]),min(stock[,c("xt1")]))
+result_lstm[i]<-format(rmse(lstm_actual,stock[(nrow(stock)-nrow(nn_test)+1):nrow(stock),c("rvol")]),scientific = FALSE)
+errors_lstm[[i]]<-stock[(nrow(stock)-nrow(nn_test)+1):nrow(stock),c("rvol")]-lstm_actual
+}
+proc.time() - ptm
+
+write.csv(result_lstm,"result_lstm_cm.csv",row.names = F)
+write.csv(errors_lstm,"errors_lstm_cm.csv",row.names = F)
