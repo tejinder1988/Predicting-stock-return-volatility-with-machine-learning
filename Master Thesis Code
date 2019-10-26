@@ -12,7 +12,6 @@ library(RSNNS)
 library(fGarch)
 library(Metrics)
 library(tseries)
-set.seed(10000000)
 ####################
 
 #cran <- getOption("repos")
@@ -48,7 +47,6 @@ date<-as.Date(substr(as.character(data$X[data$Symbol==".SPX"]),1,10),format="%Y-
 data<-data.frame(rvol,date)
 data<-data[!is.na(data$rvol)==T,]
 data<-data[lubridate::year(date)<=2017,]
-Sys.Date()
 
 stock<-getSymbols("^GSPC",auto.assign = FALSE, from =min("2018-01-01"),to=Sys.Date())
 daily_return<-Return.calculate(stock$GSPC.Close,method=c("log"))
