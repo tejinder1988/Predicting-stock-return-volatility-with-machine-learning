@@ -1,4 +1,4 @@
-# Predicting-stock-return-volatility-with-machine-learning
+# Predicting stock return volatility with machine-learning
 Code used for my Master Thesis
 
 This code was used for my Master Thesis. It predicts the stock return volatility with the help of the following deep learning networks: 
