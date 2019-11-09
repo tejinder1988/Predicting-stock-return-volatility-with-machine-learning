@@ -7,6 +7,16 @@ JORDAN - Jordan Network
 ELMAN - Elman Network
 LSTM - Long short term memory
 
+For the actual implementation of the network, two statistics software are used: MATLAB and R-Studio. The MATLAB is used to estimate only the GARCH-MIDAS models as there exists no decent package for the GARCH-MIDAS in R. All of the ANN are computed with R Studio. Each of the ANN architecture: MLP, Jordan, Jordan, and LSTM are calculated with the help of different packages. The MLP is estimated with the R package "neuralnet," the RNN types Elman and Jordan are computed with the help of the package "RSNNS" and the LSTM with the package "keras". 
+
+The implementation process is formed in three phases. In phase one, the one-step-ahead forecast of the GARCH-models is estimated. A total of six GARCH models are estimated in this thesis. Three of them are used as inputs for the ANN and the other three as a benchmark for evaluation of the forecasting performance of ANN models. All of the GARCH models estimate volatility one-step ahead instead of multi-step ahead. This is because the multi-step ahead forecast of conditionally heteroskedastic models converges to the unconditional variance. The ANN Input GARCH models are estimated with a fixed window of length 252 lags. The one-step-ahead prediction of these models is used as an input component in the ANN models for improving their forecasting performance. The other three models are estimated using the full training sample with an expanding window estimation and one step ahead prediction All of the models include a mean equation in the form of an ARMA-model with fixed p = 1 and q = 1 orders. In this thesis, one type of GARCH-MIDAS is used, which incorporates the UEMP as a macroeconomic variable. The order of GARCH and EGARCH are also fixed to p = 1 and q = 1, and the distribution assumption regarding innovation is normal for all models. Each of the one-step-ahead prediction is used as an input component in the ANN models to improve forecasting performance. 
+
+
+
+In the second phase, the ANN models with a different combination of inputs are built. Initial ANN contains the prediction of the GARCH-models singly. Therefore these models are assumed to improve the prediction over the standard GARCH. The hybrid model proposed in this thesis is constructed with the inputs dened either as raw inputs  rt or as the residuals from the ARMA model at. Then ANN models with a dierent
+combination of lagged inputs and GARCH-model forecasts are constructed.
+
+
 Before running the Neural Network, the data needs to be standardized in terms of date and merged afterwards. In this thesis unemployment rate and GNP has been used as explainatory variables. 
 ```{r}
 stock<-getSymbols("^GSPC",auto.assign = FALSE, from =min("2018-01-01"),to=Sys.Date())
