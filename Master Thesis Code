@@ -30,7 +30,6 @@ library(tseries)
 
 
 #### Setup Daily vol
-setwd("C:/Users/Teji/Google Drive/Masterthesis/Data")
 data<-read.csv("OxfordManRealizedVolatilityIndices.csv")
 
 options(digits=22)
